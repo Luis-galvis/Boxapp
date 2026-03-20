@@ -206,22 +206,51 @@ export default function Inventario() {
       if (tipo === 'cajas') {
         const insertData = data.map(item => ({
           modelo: item.modelo,
-          identificador_interno: item.identificador_interno,
+          identificador_interno: item.identificador_interno || null,
           estado: 'cerrada' as const,
           local_id: item.local_nombre ? (localMap[item.local_nombre.toLowerCase().trim()] || null) : null,
         }));
         const { error } = await supabase.from('cajas').insert(insertData);
         if (error) throw error;
       } else {
-        const { data: nextId } = await supabase.rpc('get_next_product_id', { p_tipo: 'zapatos' });
-        const insertData = data.map(item => ({
-          modelo: item.modelo,
-          talla: item.talla || 'N/A',
-          cantidad: item.cantidad,
-          precio_venta: item.precio_venta ?? null,
-          identificador_interno: item.identificador_interno || nextId,
-          local_id: item.local_nombre ? (localMap[item.local_nombre.toLowerCase().trim()] || null) : null,
-        }));
+        // ZAPATOS LOGIC: Assign IDs correctly to avoid grouping all into one
+        const uniqueModels = Array.from(new Set(data.map(d => d.modelo)));
+        const { data: existingModels } = await supabase.from('zapatos')
+          .select('modelo, identificador_interno')
+          .in('modelo', uniqueModels);
+
+        const modelToIdMap: Record<string, string> = {};
+        if (existingModels) {
+          existingModels.forEach(m => {
+            if (m.identificador_interno) modelToIdMap[m.modelo] = m.identificador_interno;
+          });
+        }
+
+        const insertData = [];
+        for (const item of data) {
+          let idInterno = item.identificador_interno;
+
+          if (!idInterno) {
+            if (modelToIdMap[item.modelo]) {
+              idInterno = modelToIdMap[item.modelo];
+            } else {
+              // Gen fresh ID for a new model
+              const { data: newId } = await supabase.rpc('get_next_product_id', { p_tipo: 'zapatos' });
+              idInterno = newId;
+              modelToIdMap[item.modelo] = idInterno;
+            }
+          }
+
+          insertData.push({
+            modelo: item.modelo,
+            talla: item.talla || 'N/A',
+            cantidad: item.cantidad,
+            precio_venta: item.precio_venta ?? null,
+            identificador_interno: idInterno,
+            local_id: item.local_nombre ? (localMap[item.local_nombre.toLowerCase().trim()] || null) : null,
+          });
+        }
+
         const { error } = await supabase.from('zapatos').insert(insertData);
         if (error) throw error;
       }
