@@ -73,16 +73,26 @@ export default function Inventario() {
 
   const fetchData = async () => {
     setLoading(true);
-    const [c, z, m, l, b] = await Promise.all([
+    const [c, z, m, l, b, p] = await Promise.all([
       supabase.from('cajas').select('*, locales(nombre)').order('identificador_interno', { ascending: false }),
       supabase.from('zapatos').select('*, locales(nombre)').order('identificador_interno', { ascending: false }),
-      supabase.from('movimientos_inventario').select('*, profiles:usuario_id(full_name, username)').order('created_at', { ascending: false }).limit(100),
+      supabase.from('movimientos_inventario').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('locales').select('*'),
       supabase.from('bodegas').select('*'),
+      supabase.from('profiles').select('user_id, full_name, username')
     ]);
+
+    // Mappear perfiles en memoria porque no hay Foreign Key directa
+    const perfilesData = (p as any)?.data || [];
+    const movsData = (m as any).data || [];
+    const movsConPerfiles = movsData.map((mov: any) => {
+      const perfil = perfilesData.find((per: any) => per.user_id === mov.usuario_id);
+      return { ...mov, profiles: perfil || null };
+    });
+
     setCajas(c.data || []);
     setZapatos(z.data || []);
-    setMovimientos(m.data || []);
+    setMovimientos(movsConPerfiles);
     setLocales(l.data || []);
     setBodegas(b.data || []);
     setLoading(false);
