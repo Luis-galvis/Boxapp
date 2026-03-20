@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
@@ -21,19 +21,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(true);
+  const initializedRef = useRef(false);
 
   const fetchRole = async (userId: string) => {
-    const { data } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId)
-      .maybeSingle();
-    setRole(data?.role as AppRole || 'user');
+    try {
+      const { data } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .maybeSingle();
+      setRole(data?.role as AppRole || 'user');
+    } catch {
+      setRole('user');
+    }
   };
 
   useEffect(() => {
+    // Timeout de seguridad: si en 8 segundos no hay respuesta de Supabase,
+    // dejamos de mostrar "Cargando..." para evitar el loop infinito.
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
+
+    // onAuthStateChange es la ÚNICA fuente de verdad para el estado de auth.
+    // Cuando la sesión está lista (o no existe), Supabase dispara este evento.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        // Evitar re-inicializar si ya se procesó el primer evento
+        if (!initializedRef.current) {
+          initializedRef.current = true;
+        }
+        clearTimeout(timeout);
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -45,16 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchRole(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
