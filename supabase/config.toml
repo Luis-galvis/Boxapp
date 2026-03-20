@@ -1,0 +1,7 @@
+project_id = "wrsxsqslkdizerlnumvt"
+
+[functions.seed-admin]
+verify_jwt = false
+
+[functions.ocr-factura]
+verify_jwt = false
