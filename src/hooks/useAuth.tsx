@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
@@ -21,50 +21,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(true);
-  const initializedRef = useRef(false);
 
-  const fetchRole = async (userId: string) => {
-    try {
-      const { data } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .maybeSingle();
-      setRole(data?.role as AppRole || 'user');
-    } catch {
-      setRole('user');
-    }
+  // fetchRole corre en background sin bloquear la UI
+  const fetchRole = (userId: string) => {
+    supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setRole((data?.role as AppRole) || 'user');
+      })
+      .catch(() => {
+        setRole('user');
+      });
   };
 
   useEffect(() => {
-    // Timeout de seguridad: si en 8 segundos no hay respuesta de Supabase,
-    // dejamos de mostrar "Cargando..." para evitar el loop infinito.
-    const timeout = setTimeout(() => {
-      setLoading(false);
-    }, 8000);
+    let mounted = true;
 
-    // onAuthStateChange es la ÚNICA fuente de verdad para el estado de auth.
-    // Cuando la sesión está lista (o no existe), Supabase dispara este evento.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        // Evitar re-inicializar si ya se procesó el primer evento
-        if (!initializedRef.current) {
-          initializedRef.current = true;
-        }
-        clearTimeout(timeout);
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchRole(session.user.id);
-        } else {
-          setRole(null);
-        }
-        setLoading(false);
+    // Paso 1: Obtener sesión de forma inmediata.
+    // setLoading(false) NO espera el fetchRole → nunca queda en loop infinito.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchRole(session.user.id); // background, no bloquea
       }
-    );
+      setLoading(false); // libera el loading SIN esperar el rol
+    }).catch(() => {
+      if (mounted) setLoading(false);
+    });
+
+    // Paso 2: Escuchar cambios futuros (login, logout, refresh de token)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchRole(session.user.id);
+      } else {
+        setRole(null);
+      }
+      setLoading(false);
+    });
 
     return () => {
-      clearTimeout(timeout);
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
