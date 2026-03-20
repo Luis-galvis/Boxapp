@@ -114,13 +114,17 @@ export default function Inventario() {
       }
 
       // Record movement
-      await supabase.from('movimientos_inventario').insert({
+      const { error: movError } = await supabase.from('movimientos_inventario').insert({
         tipo: 'eliminacion',
         producto_tipo: type,
         cantidad: deletedCount,
         descripcion: desc,
         usuario_id: user?.id,
       });
+      if (movError) {
+        console.error("Error al registrar movimiento:", movError);
+        throw new Error(`Eliminado, pero no se pudo guardar el historial: ${movError.message}`);
+      }
 
       toast({ title: 'Eliminado', description: 'El registro se eliminó correctamente y se guardó en movimientos' });
       fetchData();
@@ -214,13 +218,17 @@ export default function Inventario() {
 
       // Registrar movimiento de inventario
       const totalCantidad = data.reduce((sum, item) => sum + item.cantidad, 0);
-      await supabase.from('movimientos_inventario').insert({
+      const { error: movError } = await supabase.from('movimientos_inventario').insert({
         tipo: 'entrada',
         producto_tipo: tipo === 'cajas' ? 'caja' : 'zapato',
         cantidad: totalCantidad,
         descripcion: `Importación Excel: ${data.length} registros (${totalCantidad} unidades)`,
         usuario_id: user?.id,
       });
+      if (movError) {
+        console.error("Error al registrar movimiento:", movError);
+        throw new Error(`Importado, pero error en historial: ${movError.message}`);
+      }
 
       toast({ title: 'Carga exitosa', description: `Se importaron ${data.length} ítems (${totalCantidad} unidades).` });
       fetchData();
