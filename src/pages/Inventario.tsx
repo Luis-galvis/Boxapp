@@ -166,13 +166,12 @@ export default function Inventario() {
 
   const downloadTemplate = () => {
     const templateData = [
-      { modelo: 'Nike Air Max 90', talla: '40', cantidad: 5 },
-      { modelo: 'Adidas Stan Smith', talla: '42', cantidad: 3 },
-      { modelo: 'Adidas Stan Smith', talla: '43', cantidad: 2 },
+      { modelo: 'Nike Air Max 90', talla: '40', cantidad: 5, precio_venta: 250000, local_nombre: 'Local Centro' },
+      { modelo: 'Adidas Stan Smith', talla: '42', cantidad: 3, precio_venta: 180000, local_nombre: 'Local Centro' },
+      { modelo: 'Adidas Stan Smith', talla: '43', cantidad: 2, precio_venta: 180000, local_nombre: 'Local Norte' },
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
-    // Column widths
-    ws['!cols'] = [{ wch: 30 }, { wch: 10 }, { wch: 12 }];
+    ws['!cols'] = [{ wch: 28 }, { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
     XLSX.writeFile(wb, 'plantilla_inventario.xlsx');
@@ -186,26 +185,44 @@ export default function Inventario() {
     try {
       const data = await parseInventoryExcel(file);
 
+      // Construir mapa de nombre de local → id para resolver
+      const localMap: Record<string, string> = {};
+      locales.forEach(l => { localMap[l.nombre.toLowerCase().trim()] = l.id; });
+
       if (tipo === 'cajas') {
         const insertData = data.map(item => ({
           modelo: item.modelo,
           identificador_interno: item.identificador_interno,
           estado: 'cerrada' as const,
+          local_id: item.local_nombre ? (localMap[item.local_nombre.toLowerCase().trim()] || null) : null,
         }));
         const { error } = await supabase.from('cajas').insert(insertData);
         if (error) throw error;
       } else {
+        const { data: nextId } = await supabase.rpc('get_next_product_id', { p_tipo: 'zapatos' });
         const insertData = data.map(item => ({
           modelo: item.modelo,
           talla: item.talla || 'N/A',
           cantidad: item.cantidad,
-          identificador_interno: item.identificador_interno,
+          precio_venta: item.precio_venta ?? null,
+          identificador_interno: item.identificador_interno || nextId,
+          local_id: item.local_nombre ? (localMap[item.local_nombre.toLowerCase().trim()] || null) : null,
         }));
         const { error } = await supabase.from('zapatos').insert(insertData);
         if (error) throw error;
       }
 
-      toast({ title: 'Carga exitosa', description: `Se importaron ${data.length} ítems.` });
+      // Registrar movimiento de inventario
+      const totalCantidad = data.reduce((sum, item) => sum + item.cantidad, 0);
+      await supabase.from('movimientos_inventario').insert({
+        tipo: 'entrada',
+        producto_tipo: tipo === 'cajas' ? 'caja' : 'zapato',
+        cantidad: totalCantidad,
+        descripcion: `Importación Excel: ${data.length} registros (${totalCantidad} unidades)`,
+        usuario_id: user?.id,
+      });
+
+      toast({ title: 'Carga exitosa', description: `Se importaron ${data.length} ítems (${totalCantidad} unidades).` });
       fetchData();
     } catch (err: any) {
       toast({ title: 'Error al importar', description: err.message, variant: 'destructive' });
@@ -515,6 +532,16 @@ export default function Inventario() {
                       <td className="px-4 py-2.5 font-mono font-bold text-primary">cantidad</td>
                       <td className="px-4 py-2.5"><span className="text-xs bg-destructive/10 text-destructive font-bold px-2 py-0.5 rounded-full">Sí</span></td>
                       <td className="px-4 py-2.5 text-muted-foreground text-xs">5</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-primary">precio_venta</td>
+                      <td className="px-4 py-2.5"><span className="text-xs bg-muted text-muted-foreground font-bold px-2 py-0.5 rounded-full">No</span></td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">250000</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-primary">local_nombre</td>
+                      <td className="px-4 py-2.5"><span className="text-xs bg-muted text-muted-foreground font-bold px-2 py-0.5 rounded-full">No</span></td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">Local Centro</td>
                     </tr>
                   </tbody>
                 </table>
