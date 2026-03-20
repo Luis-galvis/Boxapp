@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import AppLayout from '@/components/AppLayout';
@@ -7,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FileDown, FileUp, Loader2, Search, ImageIcon, MapPin, Store, Edit, Upload, Trash2 } from 'lucide-react';
+import { FileDown, FileUp, Loader2, Search, ImageIcon, MapPin, Store, Edit, Upload, Trash2, Info, Download, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { parseInventoryExcel } from '@/lib/excel';
 import { Input } from '@/components/ui/input';
@@ -63,6 +64,8 @@ export default function Inventario() {
   const [bodegas, setBodegas] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -161,6 +164,20 @@ export default function Inventario() {
 
   useEffect(() => { fetchData(); }, []);
 
+  const downloadTemplate = () => {
+    const templateData = [
+      { modelo: 'Nike Air Max 90', talla: '40', cantidad: 5 },
+      { modelo: 'Adidas Stan Smith', talla: '42', cantidad: 3 },
+      { modelo: 'Adidas Stan Smith', talla: '43', cantidad: 2 },
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    // Column widths
+    ws['!cols'] = [{ wch: 30 }, { wch: 10 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+    XLSX.writeFile(wb, 'plantilla_inventario.xlsx');
+  };
+
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>, tipo: 'cajas' | 'zapatos') => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -237,15 +254,17 @@ export default function Inventario() {
                 onChange={e => setSearchTerm(e.target.value)}
               />
             </div>
-            <label className="cursor-pointer">
-              <Input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => handleExcelUpload(e, 'zapatos')} />
-              <Button variant="outline" size="sm" asChild disabled={loading}>
-                <span>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileUp className="h-4 w-4 mr-2" />}
-                  Subir Excel
-                </span>
-              </Button>
-            </label>
+            <Input
+              ref={excelInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => { handleExcelUpload(e, 'zapatos'); e.target.value = ''; }}
+            />
+            <Button variant="outline" size="sm" disabled={loading} onClick={() => setShowExcelModal(true)}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <FileUp className="h-4 w-4 mr-2" />}
+              Subir Excel
+            </Button>
           </div>
         </div>
 
@@ -457,6 +476,70 @@ export default function Inventario() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Excel Format Modal */}
+        <Dialog open={showExcelModal} onOpenChange={setShowExcelModal}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <Info className="h-5 w-5 text-primary" />
+                Formato requerido del Excel
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-5 py-2">
+              <p className="text-sm text-muted-foreground">
+                El archivo debe tener las siguientes columnas en la <span className="font-bold text-foreground">primera hoja</span>:
+              </p>
+
+              <div className="rounded-xl border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/60">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-bold text-xs uppercase text-muted-foreground">Columna</th>
+                      <th className="px-4 py-2 text-left font-bold text-xs uppercase text-muted-foreground">Requerida</th>
+                      <th className="px-4 py-2 text-left font-bold text-xs uppercase text-muted-foreground">Ejemplo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    <tr className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-primary">modelo</td>
+                      <td className="px-4 py-2.5"><span className="text-xs bg-destructive/10 text-destructive font-bold px-2 py-0.5 rounded-full">Sí</span></td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">Nike Air Max 90</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-primary">talla</td>
+                      <td className="px-4 py-2.5"><span className="text-xs bg-muted text-muted-foreground font-bold px-2 py-0.5 rounded-full">No</span></td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">40, 41, 42...</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2.5 font-mono font-bold text-primary">cantidad</td>
+                      <td className="px-4 py-2.5"><span className="text-xs bg-destructive/10 text-destructive font-bold px-2 py-0.5 rounded-full">Sí</span></td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">5</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-3 flex gap-3">
+                <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Si un mismo modelo tiene <strong>varias tallas</strong>, agrega una fila por cada talla con la misma columna <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">modelo</code>.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <Button variant="outline" className="flex-1 gap-2" onClick={downloadTemplate}>
+                  <Download className="h-4 w-4" />
+                  Descargar plantilla
+                </Button>
+                <Button className="flex-1 gap-2" onClick={() => { setShowExcelModal(false); excelInputRef.current?.click(); }}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Entendido, subir archivo
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Edit Modal */}
         <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
